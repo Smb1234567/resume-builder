@@ -1,0 +1,5 @@
+test_files:
+  - tests/test_hello.py
+environment:
+  settings:
+    - key: value

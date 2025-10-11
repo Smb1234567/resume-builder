@@ -1,34 +1,47 @@
-# Resume Builder
+# ResuMate Pro - AI Career Builder
 
-A modern and customizable Resume Builder to help you create professional resumes with ease. Build, edit, and export beautiful resumes directly from your browser.
+A professional-grade AI-powered career document generator that creates tailored resumes, cover letters, and portfolio websites optimized for job applications.
 
-## Features
+## ✨ Features
 
-- **Easy-to-use Interface**: Intuitive user experience for building and editing resumes.
-- **Customizable Templates**: Choose from multiple design templates to match your style.
-- **Live Preview**: See real-time changes as you edit your resume.
-- **Export Options**: Download your resume in popular formats like PDF.
-- **Section Management**: Add, remove, and reorder sections such as Education, Experience, Skills, and more.
-- **Data Privacy**: All information stays local in your browser unless you choose to export.
+- **AI-Powered Document Generation**: Create professional documents using advanced AI models
+- **Multi-Document Output**:
+  - 📄 **ATS Resume**: Keyword-optimized for job portals and applicant tracking systems
+  - ❤️ **Human Resume**: Story-driven version for networking and personal connections
+  - ✉️ **Cover Letter**: Personalized application letters tailored to specific companies
+  - 🌐 **Portfolio Website**: Complete HTML portfolio ready for hosting
+- **Smart Profile Analysis**:
+  - Upload PDF/TXT resume to auto-fill your information
+  - Paste text in various formats for automatic parsing
+  - Example data button for quick demo
+- **Professional PDF Generation**: Beautifully formatted PDF outputs with custom styling
+- **Input Validation**: Comprehensive validation for all required fields
+- **Error Resilience**: Multiple fallback strategies for AI responses and document generation
 
-## Getting Started
+## 🚀 Getting Started
 
 ### Prerequisites
 
-- [Python 3.7+](https://www.python.org/)
-- [pip](https://pip.pypa.io/en/stable/)
+- Python 3.8+
+- [OpenRouter API Key](https://openrouter.ai/) (required for AI features)
 
 ### Installation
 
-Clone the repository:
+1. Clone the repository:
 ```bash
-git clone https://github.com/Smb1234567/resume-builder.git
-cd resume-builder
+git clone https://github.com/your-username/resumate-pro.git
+cd resumate-pro
 ```
 
-Install dependencies using pip:
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
+```
+
+3. Set up your OpenRouter API Key:
+- Export your key as an environment variable:
+```bash
+export OPENROUTER_API_KEY=your-api-key-here
 ```
 
 ### Running Locally
@@ -40,17 +53,14 @@ streamlit run app.py
 
 Open [http://localhost:8501](http://localhost:8501) to view the app in your browser.
 
-### Building for Production
+## 🛠 Usage
 
-To deploy your Streamlit app, refer to [Streamlit Deployment Docs](https://docs.streamlit.io/streamlit-community-cloud/deploy).
+- Fill in your personal and professional information.
+- Upload your existing resume, or paste your details for AI parsing.
+- Select which documents you want to generate: ATS Resume, Human Resume, Cover Letter, Portfolio Website.
+- Download beautiful PDFs or HTML files for your job applications.
 
-## Usage
-
-1. Fill out your personal information, education, experience, and additional sections.
-2. Preview your resume live as you edit.
-3. Export your resume as a PDF or other supported formats.
-
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please open issues and pull requests to help improve the project.
 
@@ -60,15 +70,15 @@ Contributions are welcome! Please open issues and pull requests to help improve 
 4. Push to the branch: `git push origin feature/my-feature`.
 5. Open a pull request.
 
-## License
+## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
-- Inspired by modern resume design tools.
-- Built with love by [Smb1234567](https://github.com/Smb1234567).
+- Built with [Streamlit](https://streamlit.io/) and advanced AI models via [OpenRouter](https://openrouter.ai/)
+- Inspired by real job-seeker struggles and the need for accessible, professional career materials
 
 ---
 
-*Happy job hunting!*
+*Empower your career journey with ResuMate Pro!*

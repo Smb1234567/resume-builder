@@ -29,8 +29,8 @@ A professional-grade AI-powered career document generator that creates tailored 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/your-username/resumate-pro.git
-cd resumate-pro
+git clone https://github.com/Smb1234567/resume-builder.git
+cd resume-builder
 ```
 
 2. Install dependencies:

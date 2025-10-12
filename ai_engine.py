@@ -1,13 +1,31 @@
 import os
 import requests
 import json
-from dotenv import load_dotenv
-import sys
+import streamlit as st
 from datetime import datetime
 import re
+import sys
 
-load_dotenv()
+# ========================
+# SECURE API KEY HANDLING
+# ========================
+def get_api_key():
+    """Get API key from secrets or .env"""
+    try:
+        # Try Streamlit Cloud secrets first
+        return st.secrets["openrouter"]["api_key"]
+    except Exception:
+        # Fallback to .env for local development
+        from dotenv import load_dotenv
+        load_dotenv()
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("API key missing. Please add OPENROUTER_API_KEY to your .env file or Streamlit secrets.")
+        return api_key
 
+# ========================
+# LOGGING FUNCTION
+# ========================
 def log(message, level="INFO"):
     """Print timestamped logs to terminal - Windows compatible"""
     timestamp = datetime.now().strftime("%H:%M:%S")
@@ -24,32 +42,13 @@ def log(message, level="INFO"):
     print(f"[{timestamp}] {symbol} [{level}] {message}", flush=True)
     sys.stdout.flush()
 
-def estimate_tokens(text):
-    """Estimate token count (1 token ≈ 4 characters)"""
-    return len(text) // 4
-
-def compress_prompt(prompt, max_tokens=3000):
-    """
-    Intelligently compress prompts while keeping key information
-    """
-    estimated_tokens = estimate_tokens(prompt)
-    
-    if estimated_tokens <= max_tokens:
-        log(f"Prompt size OK: {estimated_tokens} tokens", "INFO")
-        return prompt
-    
-    log(f"Compressing prompt from {estimated_tokens} to ~{max_tokens} tokens", "WARNING")
-    
-    # Compression strategies
-    compressed = re.sub(r'\n{3,}', '\n\n', prompt)  # Remove extra newlines
-    compressed = re.sub(r' {2,}', ' ', compressed)  # Remove extra spaces
-    compressed = re.sub(r'Example:.*?(?=\n[A-Z]|\Z)', '', compressed, flags=re.DOTALL)  # Remove examples
-    
-    return compressed
-
+# ========================
+# JSON VALIDATION
+# ========================
 def validate_json_response(response_text):
     """
     Robust JSON validation with multiple fallback strategies
+    Handles common AI response issues
     """
     log("Validating JSON response", "INFO")
     
@@ -86,21 +85,28 @@ def validate_json_response(response_text):
     
     # Strategy 4: Fix common JSON issues
     try:
+        # Remove trailing commas
         fixed = re.sub(r',(\s*[}\]])', r'\1', json_str)
         return json.loads(fixed)
     except:
         log("All JSON parsing strategies failed", "ERROR")
         raise ValueError("Unable to parse JSON from AI response")
 
+# ========================
+# TEXT SANITIZATION
+# ========================
 def sanitize_text_for_xml(text):
-    """Sanitize text for XML/PDF generation"""
+    """
+    Sanitize text for XML/PDF generation
+    Handles special characters that break ReportLab
+    """
     if not text:
         return ""
     
     replacements = {
         '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
+        '<': '<',
+        '>': '>',
         '"': '&quot;',
         "'": '&apos;'
     }
@@ -110,38 +116,40 @@ def sanitize_text_for_xml(text):
     
     return text
 
-def get_ai_response(prompt, version="ats", max_retries=2, concise_mode=False, max_response_tokens=None):
+# ========================
+# AI RESPONSE FUNCTION
+# ========================
+def get_ai_response(prompt, version="ats", max_retries=2):
     """
-    Get AI response with token optimization and fallback
+    Get AI response with automatic model fallback and retry logic
     
     Args:
         prompt: What to ask the AI
-        version: Document type
-        max_retries: Retry attempts per model
-        concise_mode: If True, generates shorter content
-        max_response_tokens: Limit response length (None = unlimited)
+        version: "ats", "human", "cover_letter", "portfolio", "analyze"
+        max_retries: Number of retries per model
     
     Returns:
-        tuple: (response_text, tokens_used)
+        str: AI generated content
+    
+    Raises:
+        Exception: If all models fail after retries
     """
     log(f"Starting AI request for version: {version}", "INFO")
     
-    # Compress prompt if needed
-    original_prompt_tokens = estimate_tokens(prompt)
-    prompt = compress_prompt(prompt)
-    compressed_prompt_tokens = estimate_tokens(prompt)
-    
-    if compressed_prompt_tokens < original_prompt_tokens:
-        log(f"Saved {original_prompt_tokens - compressed_prompt_tokens} tokens via compression", "SUCCESS")
-    
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        log("OPENROUTER_API_KEY not found in .env file", "CRITICAL")
-        raise ValueError("API key missing. Please add OPENROUTER_API_KEY to your .env file")
-    
+    # Get API key securely
+    api_key = get_api_key()
     log(f"API key loaded (length: {len(api_key)} chars)", "SUCCESS")
     
-    # Adjust temperature and max tokens based on mode
+    # Validate prompt length
+    prompt_length = len(prompt)
+    log(f"Prompt length: {prompt_length} characters", "INFO")
+    
+    if prompt_length > 50000:
+        log("WARNING: Prompt exceeds 50K chars - may hit token limits", "WARNING")
+    elif prompt_length > 30000:
+        log("Notice: Long prompt detected (30K+ chars)", "INFO")
+    
+    # Set temperature based on version
     temp_map = {
         "ats": 0.2,
         "human": 0.4,
@@ -150,15 +158,7 @@ def get_ai_response(prompt, version="ats", max_retries=2, concise_mode=False, ma
         "analyze": 0.3
     }
     temperature = temp_map.get(version, 0.3)
-    
-    # Set max tokens based on concise mode
-    if max_response_tokens is None:
-        if concise_mode:
-            max_response_tokens = 1500 if version != "portfolio" else 3000
-        else:
-            max_response_tokens = 2500 if version != "portfolio" else 5000
-    
-    log(f"Temperature: {temperature}, Max response tokens: {max_response_tokens}", "INFO")
+    log(f"Temperature set to: {temperature}", "INFO")
     
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -167,7 +167,9 @@ def get_ai_response(prompt, version="ats", max_retries=2, concise_mode=False, ma
         "Content-Type": "application/json"
     }
     
-    # Model configurations
+    log("Headers prepared", "INFO")
+    
+    # Model configurations with retry logic
     models = [
         {"name": "DeepSeek Chat v3.1", "id": "deepseek/deepseek-chat-v3.1", "timeout": 120},
         {"name": "Grok 4 Fast", "id": "x-ai/grok-4-fast", "timeout": 90},
@@ -187,8 +189,7 @@ def get_ai_response(prompt, version="ats", max_retries=2, concise_mode=False, ma
                 data = {
                     "model": model["id"],
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": temperature,
-                    "max_tokens": max_response_tokens
+                    "temperature": temperature
                 }
                 
                 log(f"Sending request to OpenRouter API...", "INFO")
@@ -204,50 +205,46 @@ def get_ai_response(prompt, version="ats", max_retries=2, concise_mode=False, ma
                 
                 # Handle specific HTTP errors
                 if response.status_code == 429:
-                    log("Rate limit hit (429)", "WARNING")
+                    log("Rate limit hit (429) - too many requests", "WARNING")
                     errors.append(f"{model['name']}: Rate limited")
-                    break
+                    break  # Don't retry on rate limit, move to next model
                 
                 elif response.status_code == 401:
-                    log("Authentication failed (401)", "ERROR")
-                    raise ValueError("Invalid API key")
+                    log("Authentication failed (401) - check API key", "ERROR")
+                    raise ValueError("Invalid API key. Please check your OPENROUTER_API_KEY")
                 
                 elif response.status_code == 503:
-                    log("Service unavailable (503)", "WARNING")
+                    log("Service unavailable (503) - model may be down", "WARNING")
                     errors.append(f"{model['name']}: Service unavailable")
-                    continue
+                    continue  # Retry
                 
                 elif response.status_code != 200:
                     error_text = response.text[:200]
                     log(f"API Error: {error_text}", "WARNING")
                     errors.append(f"{model['name']}: HTTP {response.status_code}")
-                    continue
+                    continue  # Retry
                 
                 response.raise_for_status()
+                
+                # Parse response
                 result = response.json()
                 
                 # Validate response structure
                 if "choices" not in result or len(result["choices"]) == 0:
-                    log("Invalid response structure", "ERROR")
+                    log("Invalid response structure - missing choices", "ERROR")
                     errors.append(f"{model['name']}: Invalid response structure")
                     continue
                 
                 content = result["choices"][0]["message"]["content"]
                 
-                # Validate content
+                # Validate content is not empty
                 if not content or len(content.strip()) < 50:
-                    log(f"Response too short ({len(content)} chars)", "WARNING")
+                    log(f"Response too short ({len(content)} chars) - likely incomplete", "WARNING")
                     errors.append(f"{model['name']}: Response too short")
                     continue
                 
-                # Calculate tokens used
-                response_tokens = estimate_tokens(content)
-                total_tokens = compressed_prompt_tokens + response_tokens
-                
-                log(f"SUCCESS with {model['name']}!", "SUCCESS")
-                log(f"Tokens - Prompt: {compressed_prompt_tokens}, Response: {response_tokens}, Total: {total_tokens}", "INFO")
-                
-                return content, total_tokens
+                log(f"SUCCESS with {model['name']}! Response length: {len(content)} chars", "SUCCESS")
+                return content
             
             except requests.exceptions.Timeout:
                 log(f"Timeout after {model['timeout']}s", "ERROR")
@@ -255,7 +252,7 @@ def get_ai_response(prompt, version="ats", max_retries=2, concise_mode=False, ma
                 continue
             
             except requests.exceptions.ConnectionError:
-                log("Connection error", "ERROR")
+                log("Connection error - check internet connection", "ERROR")
                 errors.append(f"{model['name']}: Connection error")
                 continue
             
@@ -265,25 +262,36 @@ def get_ai_response(prompt, version="ats", max_retries=2, concise_mode=False, ma
                 errors.append(f"{model['name']}: {error_msg}")
                 continue
         
+        # If we get here, all retries for this model failed
         log(f"{model['name']} failed after {max_retries} retries", "ERROR")
     
     # All models failed
     log("ALL MODELS FAILED!", "CRITICAL")
+    for error in errors:
+        log(f"  - {error}", "ERROR")
+    
     raise Exception(
-        f"All AI models failed. Errors:\n" + 
-        "\n".join(f"  • {err}" for err in errors)
+        f"All AI models failed after retries. Errors:\n" + 
+        "\n".join(f"  • {err}" for err in errors) +
+        "\n\nPlease check:\n1. Internet connection\n2. API key validity\n3. OpenRouter service status"
     )
 
-def analyze_student_profile(raw_text, reuse_cache=True):
+# ========================
+# PROFILE ANALYSIS
+# ========================
+def analyze_student_profile(raw_text):
     """
-    Analyze uploaded resume with caching support
+    Analyze uploaded resume/LinkedIn to extract structured data
+    Enhanced with better validation and error handling
     
     Args:
-        raw_text: Raw text from file
-        reuse_cache: If True, returns cached result if text hasn't changed
+        raw_text: Raw text from uploaded file
     
     Returns:
-        tuple: (json_string, tokens_used)
+        str: JSON string with extracted data
+    
+    Raises:
+        Exception: If analysis fails completely
     """
     log("Starting profile analysis", "INFO")
     
@@ -291,9 +299,9 @@ def analyze_student_profile(raw_text, reuse_cache=True):
     if not raw_text or len(raw_text.strip()) < 50:
         raise ValueError("Input text too short - need at least 50 characters")
     
-    # Truncate if too long
+    # Truncate if too long (keep first 10K chars for analysis)
     if len(raw_text) > 10000:
-        log(f"Input truncated from {len(raw_text)} to 10000 chars", "WARNING")
+        log(f"Input text truncated from {len(raw_text)} to 10000 chars", "WARNING")
         raw_text = raw_text[:10000]
     
     prompt = f"""
@@ -322,17 +330,18 @@ Important:
 - Return ONLY the JSON, starting with {{ and ending with }}
 - Do NOT truncate. Include ALL projects and skills found
 - No markdown, no explanations, no code blocks
+- Look for keywords like "company:", "position:", "applying for:", "target company"
 - Ensure valid JSON (no trailing commas, proper quotes)
 """
     
     try:
-        result, tokens = get_ai_response(prompt, version="analyze", concise_mode=True, max_response_tokens=1000)
+        result = get_ai_response(prompt, version="analyze")
         log(f"Raw AI response length: {len(result)} chars", "INFO")
         
         # Validate and parse JSON
         parsed_data = validate_json_response(result)
         
-        # Ensure all expected keys exist
+        # Ensure all expected keys exist with defaults
         default_data = {
             "name": "",
             "email": "",
@@ -347,22 +356,40 @@ Important:
             "position": ""
         }
         
+        # Merge parsed data with defaults
         for key in default_data:
             if key in parsed_data and parsed_data[key]:
                 default_data[key] = parsed_data[key]
         
+        # Validate critical fields
+        if not default_data["name"] and not default_data["email"]:
+            log("Warning: No name or email found in profile", "WARNING")
+        
         log("Profile analysis complete", "SUCCESS")
-        return json.dumps(default_data), tokens
+        return json.dumps(default_data)
         
     except Exception as e:
         log(f"Analysis failed: {str(e)}", "ERROR")
         raise Exception(f"Failed to analyze profile: {str(e)}")
 
+# ========================
+# CONTENT VALIDATION
+# ========================
 def validate_content_completeness(content, doc_type):
-    """Validate AI-generated content quality"""
+    """
+    Validate that AI-generated content is complete and usable
+    
+    Args:
+        content: Generated content string
+        doc_type: Type of document (ats, human, cover, portfolio)
+    
+    Returns:
+        tuple: (is_valid, error_message)
+    """
     if not content or len(content.strip()) < 100:
         return False, "Content too short (minimum 100 characters required)"
     
+    # Check for common AI failures
     failure_patterns = [
         "I'll help you",
         "I can help",
@@ -384,11 +411,11 @@ def validate_content_completeness(content, doc_type):
         if missing:
             return False, f"Missing required sections: {', '.join(missing)}"
         
-        if content.count('-') < 5:
+        if content.count('-') < 5:  # Should have bullet points
             return False, "ATS resume needs more bullet points"
     
     elif doc_type == "human":
-        if content.count('\n\n') < 2:
+        if content.count('\n\n') < 2:  # Should have paragraphs
             return False, "Human resume needs multiple paragraphs"
     
     elif doc_type == "cover":
@@ -400,3 +427,4 @@ def validate_content_completeness(content, doc_type):
             return False, "Portfolio must be valid HTML"
     
     return True, ""
+

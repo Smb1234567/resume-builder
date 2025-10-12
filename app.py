@@ -11,6 +11,7 @@ import PyPDF2
 import re
 import json
 import time
+import base64
 
 # ========================
 # INPUT VALIDATION FUNCTIONS
@@ -300,7 +301,7 @@ st.markdown("""
 # Add example data button at the top
 col_example, col_clear = st.columns([3, 1])
 with col_example:
-    if st.button("📝 Load Example Data (Quick Demo)", use_container_width=True):
+    if st.button("📄 Load Example Data (Quick Demo)", use_container_width=True):
         st.session_state.student_data = {
             "name": "Alex Johnson",
             "email": "alex.johnson@email.com",
@@ -744,7 +745,7 @@ if submitted and not st.session_state.generation_in_progress:
             current_step += 1
             progress = current_step / total_steps
             progress_bar.progress(progress)
-            status_text.text(f"🔄 Generating ATS Resume... ({current_step}/{total_steps})")
+            status_text.text(f"📄 Generating ATS Resume... ({current_step}/{total_steps})")
             
             print("\n--- GENERATING: ATS RESUME ---")
             ats_prompt = f"""
@@ -846,7 +847,7 @@ OUTPUT: Structured resume content with clear sections. NO explanatory text, NO m
             current_step += 1
             progress = current_step / total_steps
             progress_bar.progress(progress)
-            status_text.text(f"🔄 Generating Human Resume... ({current_step}/{total_steps})")
+            status_text.text(f"📄 Generating Human Resume... ({current_step}/{total_steps})")
             
             print("--- GENERATING: HUMAN RESUME ---")
             human_prompt = f"""
@@ -907,7 +908,7 @@ OUTPUT: 3-4 well-structured paragraphs. NO bullet points, NO section headers.
             current_step += 1
             progress = current_step / total_steps
             progress_bar.progress(progress)
-            status_text.text(f"🔄 Generating Cover Letter... ({current_step}/{total_steps})")
+            status_text.text(f"📄 Generating Cover Letter... ({current_step}/{total_steps})")
             
             # Validate company and position for cover letter
             if not company_name or not position:
@@ -984,7 +985,7 @@ OUTPUT: 3 paragraphs only. NO "Dear Hiring Manager" (we'll add that). NO signatu
             current_step += 1
             progress = current_step / total_steps
             progress_bar.progress(progress)
-            status_text.text(f"🔄 Generating Portfolio Website... ({current_step}/{total_steps})")
+            status_text.text(f"📄 Generating Portfolio Website... ({current_step}/{total_steps})")
             
             print("--- GENERATING: PORTFOLIO ---")
             portfolio_prompt = f"""
@@ -1003,13 +1004,19 @@ REQUIREMENTS:
 - Modern, responsive single-page design
 - Sections: Hero, About, Projects (3-4 project cards), Skills, Contact
 - Use gradient backgrounds (purple/blue theme: #6a1b9a, #2196f3)
-- Smooth scroll animations
+- Smooth scroll animations using JavaScript
 - Mobile-responsive CSS
 - Project cards with hover effects
 - Tech stack badges for each project
-- Working navigation menu
+- Navigation menu with smooth scroll (use onclick with scrollIntoView, NOT href="#section")
 - Contact form (frontend only)
 - Self-contained (no external CDN dependencies)
+
+CRITICAL NAVIGATION REQUIREMENT:
+- For internal navigation links, use this format:
+  <a href="javascript:void(0);" onclick="document.getElementById('section-id').scrollIntoView({{behavior: 'smooth'}})">Link Text</a>
+- Do NOT use href="#section-id" for internal links
+- This ensures navigation works properly when embedded in iframes
 
 OUTPUT: Complete HTML file starting with <!DOCTYPE html>. NO markdown code blocks, NO explanations.
 """
@@ -1071,7 +1078,7 @@ if any([st.session_state.ats_resume, st.session_state.human_resume, st.session_s
     if st.session_state.ats_resume:
         with tabs[tab_idx]:
             st.subheader("🤖 ATS-Optimized Resume")
-            st.info("✓ Keyword-optimized  ✓ ATS-friendly format  ✓ Quantified achievements")
+            st.info("✔ Keyword-optimized  ✔ ATS-friendly format  ✔ Quantified achievements")
             
             # Show formatted preview
             st.text_area("Preview", st.session_state.ats_resume, height=400, disabled=True)
@@ -1108,7 +1115,7 @@ if any([st.session_state.ats_resume, st.session_state.human_resume, st.session_s
     if st.session_state.human_resume:
         with tabs[tab_idx]:
             st.subheader("❤️ Human-Friendly Resume")
-            st.info("✓ Story-driven  ✓ Personality showcase  ✓ Networking-ready")
+            st.info("✔ Story-driven  ✔ Personality showcase  ✔ Networking-ready")
             
             st.markdown(st.session_state.human_resume.replace("\n\n", "\n\n"))
             
@@ -1144,7 +1151,7 @@ if any([st.session_state.ats_resume, st.session_state.human_resume, st.session_s
         with tabs[tab_idx]:
             st.subheader("✉️ Personalized Cover Letter")
             if st.session_state.student_data.get('company') and st.session_state.student_data.get('position'):
-                st.info(f"✓ Tailored for {st.session_state.student_data.get('position')} at {st.session_state.student_data.get('company')}")
+                st.info(f"✔ Tailored for {st.session_state.student_data.get('position')} at {st.session_state.student_data.get('company')}")
             
             cover_display = f"""
 **{st.session_state.current_name}**  
@@ -1189,11 +1196,11 @@ Sincerely,
                 )
         tab_idx += 1
     
-    # PORTFOLIO TAB
+    # PORTFOLIO TAB - FIXED VERSION
     if st.session_state.portfolio_html:
         with tabs[tab_idx]:
             st.subheader("🌐 Your Professional Portfolio Website")
-            st.info("✓ Mobile-responsive  ✓ Modern design  ✓ Ready to host")
+            st.info("✔ Mobile-responsive  ✔ Modern design  ✔ Ready to host")
             
             # Clean HTML
             portfolio_clean = st.session_state.portfolio_html
@@ -1202,18 +1209,38 @@ Sincerely,
             elif '```' in portfolio_clean:
                 portfolio_clean = portfolio_clean.split('```')[1].split('```')[0]
             
-            st.components.v1.html(portfolio_clean, height=600, scrolling=True)
+            # Fix navigation links to work within iframe
+            portfolio_fixed = portfolio_clean
             
+            # Replace href="#..." with JavaScript smooth scroll
+            import re as regex
+            # Find all href="#..." patterns and replace with JavaScript
+            def replace_hash_links(match):
+                section_id = match.group(1)
+                return f'href="javascript:void(0);" onclick="document.querySelector(\'#{section_id}\').scrollIntoView({{behavior: \'smooth\'}})"'
+            
+            portfolio_fixed = regex.sub(r'href="#([^"]+)"', replace_hash_links, portfolio_fixed)
+            
+            # Display with taller height for better viewing
+            st.components.v1.html(portfolio_fixed, height=800, scrolling=True)
+            
+            # Download button
             st.download_button(
                 "⬇️ Download Portfolio HTML",
-                data=portfolio_clean,
+                data=portfolio_clean,  # Use original clean version for download
                 file_name=f"{st.session_state.current_name.replace(' ', '_')}_Portfolio.html",
                 mime="text/html",
-                use_container_width=True
+                use_container_width=True,
+                key="portfolio_download"
             )
+            
+            # Instructions for opening in new tab
+            st.info("💡 **To view in full browser:** Download the HTML file above and open it in your browser for the best experience with full navigation.")
             
             with st.expander("📋 View HTML Source Code"):
                 st.code(portfolio_clean, language='html')
+            
+            st.warning("💡 **Tip:** The portfolio works best when opened in a new tab or downloaded and opened locally. Navigation within the embedded view has been optimized for iframe display.")
 
 # FOOTER
 st.markdown("---")
